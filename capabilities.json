@@ -65,7 +65,17 @@
             "displayName": "Data Colors",
             "properties": {
                 "fill": {
-                    "displayName": "Color",
+                    "displayName": "Start Color",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "endFill": {
+                    "displayName": "End Color",
                     "type": {
                         "fill": {
                             "solid": {

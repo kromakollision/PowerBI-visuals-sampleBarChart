@@ -1,3 +1,4 @@
+
 module powerbi.extensibility.visual {
     // powerbi.visuals
     import ISelectionId = powerbi.visuals.ISelectionId;
@@ -22,6 +23,7 @@ module powerbi.extensibility.visual {
      * @property {number} value             - Data value for point.
      * @property {string} category          - Corresponding category of data value.
      * @property {string} color             - Color corresponding to data point.
+     * @property {string} endColor          - Gradient end color corresponding to data point.
      * @property {ISelectionId} selectionId - Id assigned to data point for cross filtering
      *                                        and visual interaction.
      */
@@ -29,6 +31,7 @@ module powerbi.extensibility.visual {
         value: PrimitiveValue;
         category: string;
         color: string;
+        endColor: string;
         strokeColor: string;
         strokeWidth: number;
         selectionId: ISelectionId;
@@ -120,7 +123,8 @@ module powerbi.extensibility.visual {
         const strokeWidth: number = getColumnStrokeWidth(colorPalette.isHighContrast);
 
         for (let i = 0, len = Math.max(category.values.length, dataValue.values.length); i < len; i++) {
-            const color: string = getColumnColorByIndex(category, i, colorPalette);
+            const color: string = getColumnColorByIndex(category, i, colorPalette, false);
+            const endColor: string = getColumnColorByIndex(category, i, colorPalette, true);
 
             const selectionId: ISelectionId = host.createSelectionIdBuilder()
                 .withCategory(category, i)
@@ -128,6 +132,7 @@ module powerbi.extensibility.visual {
 
             barChartDataPoints.push({
                 color,
+                endColor,
                 strokeColor,
                 strokeWidth,
                 selectionId,
@@ -145,18 +150,41 @@ module powerbi.extensibility.visual {
         };
     }
 
+    function shadeColor(color: string, percent: number) {
+        let R = parseInt(color.substring(1, 3), 16);
+        let G = parseInt(color.substring(3, 5), 16);
+        let B = parseInt(color.substring(5, 7), 16);
+
+        R = parseInt(`${R * (100 + percent) / 100}`);
+        G = parseInt(`${G * (100 + percent) / 100}`);
+        B = parseInt(`${B * (100 + percent) / 100}`);
+
+        R = (R < 255) ? R : 255;
+        G = (G < 255) ? G : 255;
+        B = (B < 255) ? B : 255;
+
+        const RR = ((R.toString(16).length === 1) ? "0" + R.toString(16) : R.toString(16));
+        const GG = ((G.toString(16).length === 1) ? "0" + G.toString(16) : G.toString(16));
+        const BB = ((B.toString(16).length === 1) ? "0" + B.toString(16) : B.toString(16));
+        return "#" + RR + GG + BB;
+    }
+
     function getColumnColorByIndex(
         category: DataViewCategoryColumn,
         index: number,
         colorPalette: ISandboxExtendedColorPalette,
+        isEndColor: boolean
     ): string {
         if (colorPalette.isHighContrast) {
             return colorPalette.background.value;
         }
 
+        const categoryColor = colorPalette.getColor(`${category.values[index]}`).value;
+        const categoryEndColor = shadeColor(categoryColor, -40);
+        console.log('color', categoryColor, categoryEndColor);
         const defaultColor: Fill = {
             solid: {
-                color: colorPalette.getColor(`${category.values[index]}`).value,
+                color: isEndColor ? categoryEndColor : categoryColor,
             }
         };
 
@@ -164,7 +192,7 @@ module powerbi.extensibility.visual {
             category,
             index,
             'colorSelector',
-            'fill',
+            isEndColor ? 'endFill' : 'fill',
             defaultColor
         ).solid.color;
     }
@@ -221,7 +249,7 @@ module powerbi.extensibility.visual {
         private barSelection: d3.selection.Update<BarChartDataPoint>;
 
         static Config = {
-            xScalePadding: 0.1,
+            xScalePadding: .7,
             solidOpacity: 1,
             transparentOpacity: 0.4,
             margins: {
@@ -264,7 +292,8 @@ module powerbi.extensibility.visual {
 
             this.xAxis = this.svg
                 .append('g')
-                .classed('xAxis', true);
+                .classed('xAxis', true)
+                .style("fill", "url(#linearGradient)");
 
             const helpLinkElement: Element = this.createHelpLinkElement();
             options.element.appendChild(helpLinkElement);
@@ -339,6 +368,27 @@ module powerbi.extensibility.visual {
 
             const opacity: number = viewModel.settings.generalView.opacity / 100;
 
+            // create gradients
+            this.barDataPoints.forEach(dataPoint => {
+                const gradientId = `gradient_${dataPoint.color.substr(1)}_${dataPoint.endColor.substr(1)}`;
+                // if gradient doesn't exist yet create it
+                if (this.svg.select(`#${gradientId}`).empty()) {
+                    const linearGradient = this.svg.append("defs")
+                        .append("linearGradient")
+                        .attr("id", gradientId)
+                        .attr("x1", "0%").attr("y1", "0%")
+                        .attr("x2", "0%").attr("y2", "100%");
+                    linearGradient.append("stop")
+                        .attr("offset", "0%")
+                        .attr("stop-color", dataPoint.color)
+                        .attr("stop-opacity", 1);
+                    linearGradient.append("stop")
+                        .attr("offset", "100%")
+                        .attr("stop-color", dataPoint.endColor)
+                        .attr("stop-opacity", 1);
+                }
+            });
+
             this.barSelection
                 .attr({
                     width: xScale.rangeBand(),
@@ -349,7 +399,7 @@ module powerbi.extensibility.visual {
                 .style({
                     'fill-opacity': opacity,
                     'stroke-opacity': opacity,
-                    fill: (dataPoint: BarChartDataPoint) => dataPoint.color,
+                    fill: (dataPoint: BarChartDataPoint) => `url(#gradient_${dataPoint.color.substr(1)}_${dataPoint.endColor.substr(1)})`,
                     stroke: (dataPoint: BarChartDataPoint) => dataPoint.strokeColor,
                     "stroke-width": (dataPoint: BarChartDataPoint) => `${dataPoint.strokeWidth}px`,
                 });
@@ -479,6 +529,11 @@ module powerbi.extensibility.visual {
                                 fill: {
                                     solid: {
                                         color: barDataPoint.color
+                                    }
+                                },
+                                endFill: {
+                                    solid: {
+                                        color: barDataPoint.endColor
                                     }
                                 }
                             },
